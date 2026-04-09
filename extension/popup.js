@@ -12,7 +12,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   });
 
+  // Show loading spinners while data loads
+  document.getElementById("history-list").innerHTML = '<div class="loading-spinner"></div>';
+  document.getElementById("settings-form").style.opacity = "0.4";
+
   await loadSettings();
+  document.getElementById("settings-form").style.opacity = "";
   await loadHistory();
   await checkServer();
 });
@@ -182,11 +187,27 @@ async function loadHistory() {
     list.appendChild(item);
   });
 
-  clearBtn.onclick = async () => {
-    if (confirm("Remove all history entries?")) {
+  clearBtn.onclick = () => {
+    if (clearBtn.dataset.confirming) return;
+    clearBtn.dataset.confirming = "true";
+    clearBtn.innerHTML = `
+      <span>Remove all entries?</span>
+      <span class="confirm-actions">
+        <button class="confirm-yes" aria-label="Confirm clear">Yes</button>
+        <button class="confirm-no" aria-label="Cancel clear">No</button>
+      </span>`;
+    const timeout = setTimeout(() => resetClearBtn(clearBtn), 3000);
+    clearBtn.querySelector(".confirm-yes").addEventListener("click", async (e) => {
+      e.stopPropagation();
+      clearTimeout(timeout);
       await sendMessage({ action: "clear-history" });
       loadHistory();
-    }
+    });
+    clearBtn.querySelector(".confirm-no").addEventListener("click", (e) => {
+      e.stopPropagation();
+      clearTimeout(timeout);
+      resetClearBtn(clearBtn);
+    });
   };
 }
 
@@ -213,6 +234,11 @@ function formatDate(iso) {
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function resetClearBtn(btn) {
+  delete btn.dataset.confirming;
+  btn.textContent = "Clear All History";
 }
 
 function showStatus(msg, type = "success") {

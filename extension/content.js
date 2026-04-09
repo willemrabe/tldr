@@ -113,10 +113,10 @@
     if (!progressOverlay) {
       progressOverlay = document.createElement("div");
       progressOverlay.id = "kokoro-progress";
-      const vizBars = Array.from({length: 28}, (_, i) =>
-        `<div class="kokoro-prog-viz-bar" style="animation-delay:${(i * 0.08).toFixed(2)}s"></div>`
+      const vizBars = Array.from({length: 12}, (_, i) =>
+        `<div class="kokoro-prog-viz-bar" style="animation-delay:${(i * 0.12).toFixed(2)}s"></div>`
       ).join("");
-      const orbs = Array.from({length: 5}, (_, i) =>
+      const orbs = Array.from({length: 2}, (_, i) =>
         `<div class="kokoro-prog-orb kokoro-prog-orb-${i}"></div>`
       ).join("");
       progressOverlay.innerHTML = `

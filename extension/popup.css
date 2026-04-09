@@ -65,7 +65,7 @@ nav .tab {
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
-  color: #999;
+  color: #aaa;
   font-size: 13px;
   cursor: pointer;
   transition: color 0.2s, border-color 0.2s;
@@ -124,16 +124,18 @@ input:focus-visible {
   border-radius: 8px;
   padding: 10px 12px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.15s, border-color 0.15s;
   position: relative;
+  border-left: 3px solid transparent;
 }
 
 .history-item:hover {
   background: #252547;
+  border-left-color: #ff6b4a;
 }
 
 .history-item .title {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   color: #e0e0e0;
   margin-bottom: 4px;
@@ -145,7 +147,7 @@ input:focus-visible {
 
 .history-item .snippet {
   font-size: 11px;
-  color: #999;
+  color: #aaa;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -155,10 +157,17 @@ input:focus-visible {
 
 .history-item .meta {
   font-size: 10px;
-  color: #999;
-  margin-top: 4px;
+  color: #aaa;
+  margin-top: 6px;
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 6px;
+}
+
+.history-item .meta span + span::before {
+  content: "\00b7";
+  margin-right: 6px;
+  color: #666;
 }
 
 .history-item .delete-btn {
@@ -167,12 +176,18 @@ input:focus-visible {
   right: 8px;
   background: none;
   border: none;
-  color: #888;
+  color: #999;
   cursor: pointer;
   font-size: 14px;
   line-height: 1;
   padding: 2px;
   border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+}
+
+.history-item:hover .delete-btn {
+  opacity: 1;
 }
 
 .history-item .delete-btn:hover {
@@ -182,17 +197,25 @@ input:focus-visible {
 
 .empty-state {
   text-align: center;
-  padding: 40px 20px;
-  color: #999;
+  padding: 48px 20px;
+  color: #aaa;
 }
 
-.empty-state p {
-  margin-bottom: 8px;
+.empty-state .empty-icon {
+  color: rgba(255, 107, 74, 0.3);
+  margin-bottom: 12px;
+}
+
+.empty-state .empty-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: #ccc;
+  margin-bottom: 6px;
 }
 
 .empty-state .hint {
   font-size: 12px;
-  color: #888;
+  color: #999;
 }
 
 /* Settings */
@@ -209,7 +232,7 @@ fieldset {
 .setting-group label {
   display: block;
   font-size: 12px;
-  color: #999;
+  color: #aaa;
   margin-bottom: 6px;
 }
 
@@ -272,7 +295,7 @@ fieldset {
 
 .preview-status {
   font-size: 11px;
-  color: #999;
+  color: #aaa;
   min-height: 16px;
   margin-top: 4px;
 }
@@ -316,6 +339,39 @@ fieldset {
   background: rgba(211, 47, 47, 0.1);
 }
 
+.danger-btn .confirm-actions {
+  display: inline-flex;
+  gap: 8px;
+  margin-left: 8px;
+}
+
+.danger-btn .confirm-yes,
+.danger-btn .confirm-no {
+  padding: 2px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  border: none;
+}
+
+.danger-btn .confirm-yes {
+  background: #d32f2f;
+  color: #fff;
+}
+
+.danger-btn .confirm-yes:hover {
+  background: #b71c1c;
+}
+
+.danger-btn .confirm-no {
+  background: #2a2a45;
+  color: #ccc;
+}
+
+.danger-btn .confirm-no:hover {
+  background: #353560;
+}
+
 .status-msg {
   font-size: 12px;
   margin-top: 8px;
@@ -326,4 +382,33 @@ fieldset {
 
 .status-msg.error {
   color: #d32f2f;
+}
+
+/* Loading spinner */
+.loading-spinner {
+  display: flex;
+  justify-content: center;
+  padding: 32px 0;
+}
+
+.loading-spinner::after {
+  content: "";
+  width: 24px;
+  height: 24px;
+  border: 2px solid #2a2a45;
+  border-top-color: #ff6b4a;
+  border-radius: 50%;
+  animation: popup-spin 0.6s linear infinite;
+}
+
+@keyframes popup-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01s !important;
+    animation-duration: 0.01s !important;
+  }
 }
