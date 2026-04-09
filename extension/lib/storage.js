@@ -30,6 +30,8 @@ const KokoroStorage = {
         serverUrl: "http://localhost:8787",
         voice: "af_heart",
         speed: 1.0,
+        playbackSpeed: 1.0,
+        volume: 1.0,
       },
       data.settings || {}
     );

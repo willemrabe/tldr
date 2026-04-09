@@ -9,6 +9,9 @@
     back10: `<svg viewBox="0 0 24 24"><path d="M11.99 5V1l-5 5 5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6h-2c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/><text x="10" y="16" font-size="7" fill="white" text-anchor="middle" font-family="sans-serif">10</text></svg>`,
     fwd10: `<svg viewBox="0 0 24 24"><path d="M12.01 5V1l5 5-5 5V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z"/><text x="14" y="16" font-size="7" fill="white" text-anchor="middle" font-family="sans-serif">10</text></svg>`,
     download: `<svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>`,
+    volumeHigh: `<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8.5v7a4.47 4.47 0 0 0 2.5-3.5zM14 3.23v2.06a7 7 0 0 1 0 13.42v2.06A9 9 0 0 0 14 3.23z"/></svg>`,
+    volumeLow: `<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8.5v7a4.47 4.47 0 0 0 2.5-3.5z"/></svg>`,
+    volumeMute: `<svg viewBox="0 0 24 24"><path d="M16.5 12A4.5 4.5 0 0 0 14 8.5v2.09l2.41 2.41c.06-.31.09-.65.09-1zm2.5 0a7 7 0 0 1-.57 2.8l1.5 1.5A8.93 8.93 0 0 0 21 12a9 9 0 0 0-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 0 0 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4 9.91 6.09 12 8.18V4z"/></svg>`,
   };
 
   const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -23,6 +26,9 @@
   let selectedText = "";
   let selectedRange = null;
   let speedIndex = 2;
+  let volumeLevel = 1.0;
+  let volumeSaveTimer = null;
+  let isSeeking = false;
   let cancelGeneration = false;
   let currentBlob = null;
   let currentFilename = "";
@@ -164,6 +170,13 @@
 
     try {
       const settings = await chrome.runtime.sendMessage({ action: "get-settings" });
+
+      // Restore saved playback speed and volume
+      if (settings.playbackSpeed != null) {
+        const idx = SPEEDS.indexOf(settings.playbackSpeed);
+        speedIndex = idx >= 0 ? idx : 2;
+      }
+      if (settings.volume != null) volumeLevel = settings.volume;
 
       // Step 1: Ask background to chunk the text (background handles fetch to avoid CORS)
       showProgress(0, 0, "Preparing text...");
@@ -487,7 +500,7 @@
     player = document.createElement("div");
     player.id = "kokoro-player";
     player.innerHTML = `
-      <div id="kokoro-progress-wrap"><div id="kokoro-progress-bar"></div></div>
+      <div id="kokoro-progress-wrap"><div id="kokoro-progress-bar"></div><div id="kokoro-progress-thumb"></div></div>
       <div id="kokoro-controls">
         <button id="kokoro-back" title="Back 10s" aria-label="Back 10 seconds">${ICONS.back10}</button>
         <button id="kokoro-play-pause" title="Play/Pause" aria-label="Play or pause">${ICONS.pause}</button>
@@ -495,8 +508,19 @@
         <span id="kokoro-time">0:00 / 0:00</span>
         <span id="kokoro-title"></span>
         <button id="kokoro-download" title="Download audio" aria-label="Download audio">${ICONS.download}</button>
-        <button id="kokoro-speed-btn" title="Playback speed" aria-label="Playback speed">1x</button>
+        <div id="kokoro-volume-group">
+          <button id="kokoro-volume-btn" title="Volume" aria-label="Volume">${volumeLevel === 0 ? ICONS.volumeMute : volumeLevel < 0.5 ? ICONS.volumeLow : ICONS.volumeHigh}</button>
+          <input id="kokoro-volume-slider" type="range" min="0" max="100" value="${Math.round(volumeLevel * 100)}" aria-label="Volume" />
+        </div>
+        <button id="kokoro-speed-btn" title="Playback speed" aria-label="Playback speed">${SPEEDS[speedIndex]}x</button>
+        <button id="kokoro-help-btn" title="Keyboard shortcuts" aria-label="Keyboard shortcuts">?</button>
         <button id="kokoro-close" title="Close" aria-label="Close player">${ICONS.close}</button>
+      </div>
+      <div id="kokoro-shortcuts-popover" role="tooltip" aria-hidden="true">
+        <div class="kokoro-popover-title">Keyboard Shortcuts</div>
+        <div class="kokoro-popover-row"><kbd>Space</kbd> Play / Pause</div>
+        <div class="kokoro-popover-row"><kbd>&#8592;</kbd> Rewind 5s</div>
+        <div class="kokoro-popover-row"><kbd>&#8594;</kbd> Forward 5s</div>
       </div>`;
     document.body.appendChild(player);
     player.querySelector("#kokoro-play-pause").addEventListener("click", togglePlayPause);
@@ -504,9 +528,29 @@
     player.querySelector("#kokoro-fwd").addEventListener("click", () => seekRelative(10));
     player.querySelector("#kokoro-speed-btn").addEventListener("click", cycleSpeed);
     player.querySelector("#kokoro-close").addEventListener("click", closePlayer);
-    player.querySelector("#kokoro-progress-wrap").addEventListener("click", seekToClick);
+    player.querySelector("#kokoro-progress-wrap").addEventListener("mousedown", onSeekStart);
     player.querySelector("#kokoro-download").addEventListener("click", () => {
       if (currentBlob) saveBlob(currentBlob, currentFilename);
+    });
+    player.querySelector("#kokoro-volume-btn").addEventListener("click", () => {
+      player.querySelector("#kokoro-volume-group").classList.toggle("expanded");
+    });
+    player.querySelector("#kokoro-volume-slider").addEventListener("input", (e) => {
+      volumeLevel = e.target.value / 100;
+      if (audio) audio.volume = volumeLevel;
+      updateVolumeIcon();
+      clearTimeout(volumeSaveTimer);
+      volumeSaveTimer = setTimeout(async () => {
+        const settings = await chrome.runtime.sendMessage({ action: "get-settings" });
+        settings.volume = volumeLevel;
+        chrome.runtime.sendMessage({ action: "save-settings", settings });
+      }, 300);
+    });
+    player.querySelector("#kokoro-help-btn").addEventListener("click", (e) => {
+      e.stopPropagation();
+      const popover = player.querySelector("#kokoro-shortcuts-popover");
+      const isVisible = popover.classList.toggle("visible");
+      popover.setAttribute("aria-hidden", !isVisible);
     });
     return player;
   }
@@ -530,6 +574,7 @@
     });
     audio.addEventListener("loadedmetadata", () => updateProgressBar());
     audio.playbackRate = SPEEDS[speedIndex];
+    audio.volume = volumeLevel;
     audio.play();
     requestAnimationFrame(() => player.classList.add("visible"));
   }
@@ -543,22 +588,58 @@
 
   function seekRelative(s) { if (audio) audio.currentTime = Math.max(0, Math.min(audio.duration, audio.currentTime + s)); }
 
-  function seekToClick(e) {
+  function onSeekStart(e) {
     if (!audio || !audio.duration) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    audio.currentTime = ((e.clientX - rect.left) / rect.width) * audio.duration;
+    e.preventDefault();
+    isSeeking = true;
+    player.querySelector("#kokoro-progress-wrap").classList.add("seeking");
+    seekToPosition(e);
+    document.addEventListener("mousemove", onSeekMove);
+    document.addEventListener("mouseup", onSeekEnd);
   }
 
-  function cycleSpeed() {
+  function onSeekMove(e) {
+    if (!isSeeking) return;
+    seekToPosition(e);
+  }
+
+  function onSeekEnd() {
+    if (!isSeeking) return;
+    isSeeking = false;
+    player?.querySelector("#kokoro-progress-wrap")?.classList.remove("seeking");
+    document.removeEventListener("mousemove", onSeekMove);
+    document.removeEventListener("mouseup", onSeekEnd);
+  }
+
+  function seekToPosition(e) {
+    if (!audio || !audio.duration) return;
+    const wrap = player.querySelector("#kokoro-progress-wrap");
+    const rect = wrap.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    audio.currentTime = ratio * audio.duration;
+  }
+
+  async function cycleSpeed() {
     speedIndex = (speedIndex + 1) % SPEEDS.length;
     if (audio) audio.playbackRate = SPEEDS[speedIndex];
     player.querySelector("#kokoro-speed-btn").textContent = `${SPEEDS[speedIndex]}x`;
+    const settings = await chrome.runtime.sendMessage({ action: "get-settings" });
+    settings.playbackSpeed = SPEEDS[speedIndex];
+    chrome.runtime.sendMessage({ action: "save-settings", settings });
+  }
+
+  function updateVolumeIcon() {
+    if (!player) return;
+    const btn = player.querySelector("#kokoro-volume-btn");
+    if (btn) btn.innerHTML = volumeLevel === 0 ? ICONS.volumeMute : volumeLevel < 0.5 ? ICONS.volumeLow : ICONS.volumeHigh;
   }
 
   function updateProgressBar() {
     if (!audio || !player) return;
     const pct = audio.duration ? (audio.currentTime / audio.duration) * 100 : 0;
     player.querySelector("#kokoro-progress-bar").style.width = `${pct}%`;
+    const thumb = player.querySelector("#kokoro-progress-thumb");
+    if (thumb) thumb.style.left = `${pct}%`;
     player.querySelector("#kokoro-time").textContent =
       `${fmtTime(audio.currentTime)} / ${fmtTime(audio.duration || 0)}`;
   }
@@ -591,5 +672,17 @@
     if (e.code === "Space" && e.target === document.body) { e.preventDefault(); togglePlayPause(); }
     else if (e.code === "ArrowLeft") seekRelative(-5);
     else if (e.code === "ArrowRight") seekRelative(5);
+    else if (e.code === "Escape") {
+      const popover = player?.querySelector("#kokoro-shortcuts-popover");
+      if (popover) { popover.classList.remove("visible"); popover.setAttribute("aria-hidden", "true"); }
+    }
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!player) return;
+    if (!e.target.closest("#kokoro-shortcuts-popover") && !e.target.closest("#kokoro-help-btn")) {
+      const popover = player.querySelector("#kokoro-shortcuts-popover");
+      if (popover) { popover.classList.remove("visible"); popover.setAttribute("aria-hidden", "true"); }
+    }
   });
 })();

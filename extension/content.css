@@ -81,8 +81,9 @@
   transform: translateY(0);
 }
 
-/* Progress bar (clickable) */
+/* Progress bar (clickable + draggable) */
 #kokoro-progress-wrap {
+  position: relative;
   width: 100%;
   height: 4px;
   background: #2a2a45;
@@ -100,6 +101,26 @@
   width: 0%;
   transition: width 0.1s linear;
   border-radius: 0 2px 2px 0;
+}
+
+#kokoro-progress-thumb {
+  position: absolute;
+  top: 50%;
+  left: 0%;
+  width: 12px;
+  height: 12px;
+  background: #ff6b4a;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+  box-shadow: 0 0 4px rgba(255, 107, 74, 0.4);
+}
+
+#kokoro-progress-wrap:hover #kokoro-progress-thumb,
+#kokoro-progress-wrap.seeking #kokoro-progress-thumb {
+  opacity: 1;
 }
 
 /* Controls row */
@@ -160,6 +181,116 @@
   color: #bbb;
   min-width: 40px;
   width: auto;
+}
+
+/* Volume control */
+#kokoro-volume-group {
+  display: flex;
+  align-items: center;
+}
+
+#kokoro-volume-slider {
+  width: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: width 0.2s ease, opacity 0.2s ease;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: #2a2a45;
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+  margin-left: 0;
+}
+
+#kokoro-volume-group.expanded #kokoro-volume-slider {
+  width: 80px;
+  opacity: 1;
+  margin-left: 8px;
+}
+
+#kokoro-volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ff6b4a;
+  cursor: pointer;
+}
+
+#kokoro-volume-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ff6b4a;
+  border: none;
+  cursor: pointer;
+}
+
+/* Help / shortcuts button */
+#kokoro-controls #kokoro-help-btn {
+  font-size: 13px;
+  font-weight: 600;
+  color: #888;
+  min-width: 28px;
+  width: auto;
+}
+
+/* Shortcuts popover */
+#kokoro-shortcuts-popover {
+  position: absolute;
+  bottom: 100%;
+  right: 16px;
+  background: #1a1a2e;
+  border: 1px solid #2a2a45;
+  border-radius: 8px;
+  padding: 12px 16px;
+  min-width: 200px;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  pointer-events: none;
+  z-index: 1;
+}
+
+#kokoro-shortcuts-popover.visible {
+  opacity: 1;
+  transform: translateY(-8px);
+  pointer-events: auto;
+}
+
+.kokoro-popover-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #e0e0e0;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.kokoro-popover-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 0;
+  font-size: 12px;
+  color: #ccc;
+}
+
+.kokoro-popover-row kbd {
+  display: inline-block;
+  background: #252547;
+  border: 1px solid #2a2a45;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-family: inherit;
+  font-size: 11px;
+  color: #e0e0e0;
+  min-width: 32px;
+  text-align: center;
 }
 
 /* Chunk highlighting */
