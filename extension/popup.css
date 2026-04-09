@@ -37,21 +37,62 @@ h1 {
   color: #ff6b4a;
 }
 
-.dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  display: inline-block;
-  flex-shrink: 0;
+/* Server toggle button */
+.server-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #1a1a2e;
+  border: 1px solid #2a2a45;
+  border-radius: 20px;
+  padding: 4px 10px 4px 8px;
+  cursor: pointer;
+  font-size: 11px;
+  color: #999;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
 }
 
-.dot.online {
+.server-toggle:hover {
+  border-color: #444;
+  background: #252547;
+}
+
+.server-toggle .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+
+.server-toggle.online .dot {
   background: #4caf50;
   box-shadow: 0 0 6px #4caf50;
 }
 
-.dot.offline {
+.server-toggle.online {
+  color: #4caf50;
+  border-color: rgba(76, 175, 80, 0.3);
+}
+
+.server-toggle.offline .dot {
   background: #999;
+}
+
+.server-toggle.starting .dot {
+  background: #ff9800;
+  animation: pulse-dot 1s ease-in-out infinite;
+}
+
+.server-toggle.starting {
+  color: #ff9800;
+  border-color: rgba(255, 152, 0, 0.3);
+  pointer-events: none;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
 }
 
 nav {

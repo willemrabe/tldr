@@ -1,6 +1,8 @@
 /* Autlaut — Background Service Worker */
 importScripts("lib/storage.js");
 
+const NATIVE_HOST = "com.autlaut.tts";
+
 // Context menu setup
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
@@ -18,6 +20,30 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     });
   }
 });
+
+// --- Native messaging helpers ---
+
+function nativeMessage(msg) {
+  return new Promise((resolve) => {
+    chrome.runtime.sendNativeMessage(NATIVE_HOST, msg, (resp) => {
+      if (chrome.runtime.lastError) {
+        resolve({ ok: false, error: chrome.runtime.lastError.message });
+      } else {
+        resolve(resp || { ok: false, error: "No response" });
+      }
+    });
+  });
+}
+
+async function ensureServer(url) {
+  // Already running? Nothing to do.
+  const health = await checkServer(url);
+  if (health.ok) return { ok: true, status: "already_running" };
+
+  // Try to start via native messaging host
+  const result = await nativeMessage({ action: "start" });
+  return result;
+}
 
 // Message handler
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -85,8 +111,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // --- Server lifecycle (native messaging) ---
+
+  if (msg.action === "start-server") {
+    KokoroStorage.getSettings().then((s) => ensureServer(s.serverUrl)).then(sendResponse);
+    return true;
+  }
+
+  if (msg.action === "stop-server") {
+    nativeMessage({ action: "stop" }).then(sendResponse);
+    return true;
+  }
+
+  // --- TTS (auto-start server if needed) ---
+
   if (msg.action === "tts-prepare") {
-    ttsPrepare(msg).then(sendResponse).catch((err) =>
+    (async () => {
+      const settings = await KokoroStorage.getSettings();
+      await ensureServer(settings.serverUrl);
+      return ttsPrepare(msg);
+    })().then(sendResponse).catch((err) =>
       sendResponse({ error: err.message })
     );
     return true;
@@ -100,7 +144,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === "tts-preview") {
-    ttsPreview(msg).then(sendResponse).catch((err) =>
+    (async () => {
+      const settings = await KokoroStorage.getSettings();
+      await ensureServer(settings.serverUrl);
+      return ttsPreview(msg);
+    })().then(sendResponse).catch((err) =>
       sendResponse({ error: err.message })
     );
     return true;
