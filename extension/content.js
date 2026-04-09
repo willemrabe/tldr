@@ -113,8 +113,16 @@
     if (!progressOverlay) {
       progressOverlay = document.createElement("div");
       progressOverlay.id = "kokoro-progress";
+      const vizBars = Array.from({length: 28}, (_, i) =>
+        `<div class="kokoro-prog-viz-bar" style="animation-delay:${(i * 0.08).toFixed(2)}s"></div>`
+      ).join("");
+      const orbs = Array.from({length: 5}, (_, i) =>
+        `<div class="kokoro-prog-orb kokoro-prog-orb-${i}"></div>`
+      ).join("");
       progressOverlay.innerHTML = `
+        ${orbs}
         <div class="kokoro-prog-inner">
+          <div class="kokoro-prog-visualizer">${vizBars}</div>
           <div class="kokoro-prog-bar-wrap"><div class="kokoro-prog-bar-fill"></div></div>
           <div class="kokoro-prog-text"></div>
           <button class="kokoro-prog-cancel" aria-label="Cancel generation">Cancel</button>
