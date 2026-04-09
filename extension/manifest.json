@@ -6,7 +6,8 @@
   "permissions": [
     "activeTab",
     "storage",
-    "contextMenus"
+    "contextMenus",
+    "nativeMessaging"
   ],
   "host_permissions": [
     "http://localhost:8787/*"

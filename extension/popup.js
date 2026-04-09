@@ -144,22 +144,64 @@ async function previewVoice() {
   }
 }
 
-// --- Server Check ---
+// --- Server Toggle ---
+
+let serverOnline = false;
 
 async function checkServer() {
   const settings = await sendMessage({ action: "get-settings" });
   const result = await sendMessage({ action: "check-server", url: settings.serverUrl });
-  const dot = document.getElementById("status-dot");
+  const btn = document.getElementById("server-toggle");
+  const label = btn.querySelector(".server-label");
+
+  serverOnline = result.ok;
   if (result.ok) {
-    dot.className = "dot online";
-    dot.title = "Server online";
-    dot.setAttribute("aria-label", "Server status: online");
+    btn.className = "server-toggle online";
+    btn.title = "Server online — click to stop";
+    btn.setAttribute("aria-label", "Server online — click to stop");
+    label.textContent = "Online";
   } else {
-    dot.className = "dot offline";
-    dot.title = "Server offline — start the TTS server";
-    dot.setAttribute("aria-label", "Server status: offline");
+    btn.className = "server-toggle offline";
+    btn.title = "Server offline — click to start";
+    btn.setAttribute("aria-label", "Server offline — click to start");
+    label.textContent = "Offline";
   }
 }
+
+document.getElementById("server-toggle").addEventListener("click", async () => {
+  const btn = document.getElementById("server-toggle");
+  const label = btn.querySelector(".server-label");
+
+  if (serverOnline) {
+    // Stop
+    label.textContent = "Stopping...";
+    btn.className = "server-toggle starting";
+    await sendMessage({ action: "stop-server" });
+    // Brief delay before re-checking
+    await new Promise((r) => setTimeout(r, 500));
+    await checkServer();
+  } else {
+    // Start
+    label.textContent = "Starting...";
+    btn.className = "server-toggle starting";
+    const result = await sendMessage({ action: "start-server" });
+    if (result && result.ok) {
+      await checkServer();
+    } else {
+      const errorMsg = result?.error || "Could not start server";
+      // Check if native messaging host not installed
+      if (errorMsg.includes("not found") || errorMsg.includes("native messaging host")) {
+        label.textContent = "Not set up";
+        btn.title = "Run install_host.sh first — see README";
+      } else {
+        label.textContent = "Error";
+        btn.title = errorMsg;
+      }
+      btn.className = "server-toggle offline";
+      setTimeout(() => checkServer(), 3000);
+    }
+  }
+});
 
 // --- History ---
 
