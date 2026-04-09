@@ -183,7 +183,10 @@
       for (let i = 0; i < Math.min(PARALLEL_WORKERS, total); i++) {
         workers.push(worker());
       }
-      await Promise.all(workers);
+      await Promise.all(workers).catch((err) => {
+        cancelGeneration = true;
+        throw err;
+      });
 
       if (cancelGeneration) return;
 
@@ -354,15 +357,22 @@
       return null;
     });
 
-    let charOffset = 0;
-    const nodeRanges = textNodes.map((n) => {
-      const r = { node: n, start: charOffset, end: charOffset + n.textContent.length };
-      charOffset += n.textContent.length;
-      return r;
-    });
+    function buildNodeRanges() {
+      const walker2 = document.createTreeWalker(parentEl, NodeFilter.SHOW_TEXT, null);
+      const ranges = [];
+      let n2, off = 0;
+      while ((n2 = walker2.nextNode())) {
+        if (selectedRange.intersectsNode(n2)) {
+          ranges.push({ node: n2, start: off, end: off + n2.textContent.length });
+          off += n2.textContent.length;
+        }
+      }
+      return ranges;
+    }
 
     chunkPositions.forEach((pos, chunkIdx) => {
       if (!pos) return;
+      const nodeRanges = buildNodeRanges();
       for (const nr of nodeRanges) {
         const overlapStart = Math.max(pos.start, nr.start);
         const overlapEnd = Math.min(pos.end, nr.end);
@@ -493,7 +503,13 @@
   }
 
   function closePlayer() {
-    if (audio) { audio.pause(); audio.src = ""; audio = null; }
+    if (audio) {
+      const src = audio.src;
+      audio.pause();
+      audio.src = "";
+      audio = null;
+      if (src.startsWith("blob:")) URL.revokeObjectURL(src);
+    }
     if (player) { player.classList.remove("visible"); setTimeout(() => { player?.remove(); player = null; }, 300); }
     clearHighlights();
   }

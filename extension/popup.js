@@ -95,7 +95,6 @@ async function previewVoice() {
     }
 
     previewAudio = new Audio(result.dataUrl);
-    previewAudio.playbackRate = speed;
 
     previewAudio.addEventListener("ended", () => {
       statusEl.textContent = "";
