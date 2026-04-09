@@ -365,16 +365,22 @@
     const fullText = textNodes.map((n) => n.textContent).join("");
 
     let searchStart = 0;
+    const normalizedFull = fullText.replace(/\s+/g, " ");
     const chunkPositions = chunkMap.map((chunk) => {
       const cleanChunk = chunk.text.trim();
       const idx = fullText.indexOf(cleanChunk, searchStart);
       if (idx >= 0) { searchStart = idx + cleanChunk.length; return { start: idx, end: idx + cleanChunk.length }; }
+      // Try whitespace-normalized match
+      const normalizedChunk = cleanChunk.replace(/\s+/g, " ");
+      const normIdx = normalizedFull.indexOf(normalizedChunk, Math.max(0, searchStart - 50));
+      if (normIdx >= 0) { searchStart = normIdx + normalizedChunk.length; return { start: normIdx, end: normIdx + cleanChunk.length }; }
       const prefix = cleanChunk.slice(0, 40);
       const fuzzyIdx = fullText.indexOf(prefix, Math.max(0, searchStart - 50));
       if (fuzzyIdx >= 0) { searchStart = fuzzyIdx + cleanChunk.length; return { start: fuzzyIdx, end: fuzzyIdx + cleanChunk.length }; }
       return null;
     });
 
+    // Build initial node ranges
     function buildNodeRanges() {
       const walker2 = document.createTreeWalker(parentEl, NodeFilter.SHOW_TEXT, null);
       const ranges = [];
@@ -388,30 +394,54 @@
       return ranges;
     }
 
-    // Build node ranges once, not per chunk
+    // Phase 1: Collect all wrap tasks (no DOM mutation yet)
     let nodeRanges = buildNodeRanges();
-
+    const wrapTasks = [];
     chunkPositions.forEach((pos, chunkIdx) => {
       if (!pos) return;
       for (const nr of nodeRanges) {
         const overlapStart = Math.max(pos.start, nr.start);
         const overlapEnd = Math.min(pos.end, nr.end);
         if (overlapStart >= overlapEnd) continue;
-        try {
-          const range = document.createRange();
-          range.setStart(nr.node, overlapStart - nr.start);
-          range.setEnd(nr.node, overlapEnd - nr.start);
-          const span = document.createElement("span");
-          span.className = "kokoro-chunk";
-          span.dataset.chunkIdx = chunkIdx;
-          range.surroundContents(span);
-          highlightSpans.push(span);
-          // Rebuild after DOM mutation from surroundContents
-          nodeRanges = buildNodeRanges();
-        } catch { /* cross-element boundary */ }
-        break;
+        wrapTasks.push({ chunkIdx, absStart: overlapStart, absEnd: overlapEnd });
       }
     });
+
+    // Phase 2: Execute wraps front-to-back with incremental nodeRange updates
+    wrapTasks.sort((a, b) => a.absStart - b.absStart);
+    nodeRanges = buildNodeRanges();
+
+    for (const task of wrapTasks) {
+      // Find the node range containing this task's text
+      const nrIdx = nodeRanges.findIndex((nr) => task.absStart >= nr.start && task.absEnd <= nr.end);
+      if (nrIdx === -1) continue;
+      const nr = nodeRanges[nrIdx];
+      const localStart = task.absStart - nr.start;
+      const localEnd = task.absEnd - nr.start;
+      try {
+        const range = document.createRange();
+        range.setStart(nr.node, localStart);
+        range.setEnd(nr.node, localEnd);
+        const span = document.createElement("span");
+        span.className = "kokoro-chunk";
+        span.dataset.chunkIdx = task.chunkIdx;
+        range.surroundContents(span);
+        highlightSpans.push(span);
+        // Incrementally update nodeRanges after the split
+        const replacements = [];
+        if (localStart > 0) {
+          replacements.push({ node: nr.node, start: nr.start, end: nr.start + localStart });
+        }
+        // Skip the span's inner text node (it's wrapped)
+        if (localEnd < nr.end - nr.start) {
+          const suffix = span.nextSibling;
+          if (suffix && suffix.nodeType === Node.TEXT_NODE) {
+            replacements.push({ node: suffix, start: nr.start + localEnd, end: nr.end });
+          }
+        }
+        nodeRanges.splice(nrIdx, 1, ...replacements);
+      } catch { /* cross-element boundary — skip */ }
+    }
   }
 
   function clearHighlights() {
@@ -427,6 +457,12 @@
     let activeIdx = -1;
     for (let i = 0; i < currentChunkMap.length; i++) {
       if (currentTime >= currentChunkMap[i].start && currentTime < currentChunkMap[i].end) { activeIdx = i; break; }
+    }
+    // Bridge silence gaps: keep previous chunk highlighted until next starts
+    if (activeIdx === -1) {
+      for (let i = 0; i < currentChunkMap.length - 1; i++) {
+        if (currentTime >= currentChunkMap[i].end && currentTime < currentChunkMap[i + 1].start) { activeIdx = i; break; }
+      }
     }
     highlightSpans.forEach((span) => {
       const idx = parseInt(span.dataset.chunkIdx, 10);
