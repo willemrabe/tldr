@@ -171,7 +171,7 @@ async function loadHistory() {
 
   list.innerHTML = "";
 
-  if (!history || history.length === 0) {
+  if (!Array.isArray(history) || history.length === 0) {
     empty.style.display = "block";
     clearBtn.style.display = "none";
     return;
@@ -188,7 +188,7 @@ async function loadHistory() {
       <div class="snippet">${escapeHtml(entry.selectedText || "")}</div>
       <div class="meta">
         <span>${formatDate(entry.createdAt)}</span>
-        <span>${entry.voice || "af_heart"}</span>
+        <span>${escapeHtml(entry.voice || "af_heart")}</span>
       </div>
       <button class="delete-btn" data-id="${escapeHtml(entry.id)}" title="Remove" aria-label="Remove from history">&#x2715;</button>
     `;

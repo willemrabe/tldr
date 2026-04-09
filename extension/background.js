@@ -29,28 +29,38 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === "get-history") {
-    KokoroStorage.getHistory().then(sendResponse);
+    KokoroStorage.getHistory().then(sendResponse).catch((err) =>
+      sendResponse({ error: err.message })
+    );
     return true;
   }
 
   if (msg.action === "remove-history") {
-    KokoroStorage.removeEntry(msg.id).then(() => sendResponse({ ok: true }));
+    KokoroStorage.removeEntry(msg.id).then(() => sendResponse({ ok: true })).catch((err) =>
+      sendResponse({ error: err.message })
+    );
     return true;
   }
 
   if (msg.action === "clear-history") {
-    KokoroStorage.clearHistory().then(() => sendResponse({ ok: true }));
+    KokoroStorage.clearHistory().then(() => sendResponse({ ok: true })).catch((err) =>
+      sendResponse({ error: err.message })
+    );
     return true;
   }
 
   if (msg.action === "get-settings") {
-    KokoroStorage.getSettings().then(sendResponse);
+    KokoroStorage.getSettings().then(sendResponse).catch((err) =>
+      sendResponse({ error: err.message })
+    );
     return true;
   }
 
   if (msg.action === "save-settings") {
     KokoroStorage.saveSettings(msg.settings).then(() =>
       sendResponse({ ok: true })
+    ).catch((err) =>
+      sendResponse({ error: err.message })
     );
     return true;
   }
@@ -59,7 +69,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     KokoroStorage.getSettings().then((settings) => {
       settings[msg.key] = msg.value;
       return KokoroStorage.saveSettings(settings);
-    }).then(() => sendResponse({ ok: true }));
+    }).then(() => sendResponse({ ok: true })).catch((err) =>
+      sendResponse({ error: err.message })
+    );
     return true;
   }
 
