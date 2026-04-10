@@ -466,6 +466,14 @@
   pointer-events: auto;
 }
 
+#kokoro-progress.dismissing {
+  opacity: 0;
+  transform: scale(0.9);
+  filter: blur(4px);
+  pointer-events: none;
+  transition: opacity 0.5s ease, transform 0.5s ease, filter 0.5s ease;
+}
+
 /* Floating ambient orbs */
 .kokoro-prog-orb {
   position: absolute;

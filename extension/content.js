@@ -195,11 +195,35 @@
     progressOverlay.classList.add("visible");
   }
 
+  let progressDismissed = false;
+  let progressDismissTimer = null;
+
   function hideProgress() {
+    progressDismissed = true;
+    if (progressDismissTimer) { clearTimeout(progressDismissTimer); progressDismissTimer = null; }
     if (progressOverlay) {
       progressOverlay.classList.remove("visible");
-      setTimeout(() => { progressOverlay?.remove(); progressOverlay = null; }, 300);
+      progressOverlay.classList.add("dismissing");
+      setTimeout(() => { progressOverlay?.remove(); progressOverlay = null; }, 500);
     }
+  }
+
+  function autoDismissProgress() {
+    if (!progressOverlay || progressDismissed) return;
+    // Show "Done" state, then countdown and animate out
+    progressOverlay.querySelector(".kokoro-prog-text").textContent = "All chunks complete";
+    progressOverlay.querySelector(".kokoro-prog-cancel").style.display = "none";
+    let remaining = 5;
+    const tick = () => {
+      if (!progressOverlay || progressDismissed) return;
+      if (remaining <= 0) {
+        hideProgress();
+        return;
+      }
+      remaining--;
+      progressDismissTimer = setTimeout(tick, 1000);
+    };
+    progressDismissTimer = setTimeout(tick, 1000);
   }
 
   // ── TTS Generation (parallel chunked) ──
@@ -236,6 +260,8 @@
       genStartTime = 0;
       wordsConverted = 0;
       audioDuration = 0;
+      progressDismissed = false;
+      if (progressDismissTimer) { clearTimeout(progressDismissTimer); progressDismissTimer = null; }
       showProgress(0, 0, "Preparing text...");
       const prepResult = await chrome.runtime.sendMessage({ action: "tts-prepare", text: selectedText });
       if (prepResult.error) throw new Error(prepResult.error);
@@ -281,6 +307,7 @@
       // Handle background completion: stitch for download, save history
       allWorkersPromise.then(() => {
         allChunksComplete = true;
+        autoDismissProgress();
         // Rebuild chunkMap with all actual durations
         currentChunkMap = buildChunkMap(results, total, chunks);
         stitchForDownload(results, settings);
@@ -302,7 +329,6 @@
       if (cancelGeneration) return;
 
       const partialChunkMap = buildChunkMap(results, total, chunks);
-      hideProgress();
       hideFAB();
       setupHighlighting(partialChunkMap);
       startStreamingPlayback(results, total, chunks, settings);
