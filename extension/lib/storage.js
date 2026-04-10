@@ -37,7 +37,7 @@ const KokoroStorage = {
     const data = await chrome.storage.local.get("settings");
     return Object.assign(
       {
-        voice: "bm_daniel",
+        voice: "bm_lewis",
         speed: 1.0,
         playbackSpeed: 1.0,
         volume: 1.0,
