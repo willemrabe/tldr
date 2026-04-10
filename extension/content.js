@@ -33,6 +33,18 @@
   let currentBlob = null;
   let currentFilename = "";
 
+  // ── Streaming playback state ──
+  let currentChunkIndex = 0;
+  let playbackTimeOffset = 0;
+  let totalEstimatedDuration = 0;
+  let allChunksComplete = false;
+  let isPaused = false;
+  let isWaitingForChunk = false;
+  let chunkBlobUrls = [];
+  let streamingResults = null;
+  let streamingChunks = null;
+  let streamingTotal = 0;
+
   // ── Floating Action Button ──
 
   function createFAB() {
@@ -167,7 +179,13 @@
     if (!selectedText) return;
     cancelGeneration = false;
     setFABLoading(true);
-    let audioBlobUrl = null;
+
+    // Clean up previous streaming session
+    if (streamingResults) {
+      chunkBlobUrls.forEach((url) => { if (url) URL.revokeObjectURL(url); });
+      chunkBlobUrls = [];
+      streamingResults = null;
+    }
 
     try {
       const settings = await chrome.runtime.sendMessage({ action: "get-settings" });
@@ -211,65 +229,45 @@
         }
       }
 
+      // Launch workers but DON'T await — let them run in background
       const workers = [];
       for (let i = 0; i < Math.min(PARALLEL_WORKERS, total); i++) {
         workers.push(worker());
       }
-      await Promise.all(workers).catch((err) => {
-        cancelGeneration = true;
-        throw err;
+
+      const allWorkersPromise = Promise.all(workers);
+
+      // Handle background completion: stitch for download, save history
+      allWorkersPromise.then(() => {
+        allChunksComplete = true;
+        // Rebuild chunkMap with all actual durations
+        currentChunkMap = buildChunkMap(results, total, chunks);
+        stitchForDownload(results, settings);
+        chrome.runtime.sendMessage({
+          action: "save-history",
+          chunkMap: currentChunkMap, text: selectedText,
+          voice: settings.voice, speed: settings.speed,
+          filename: `Autlaut_${Date.now()}_${location.hostname.replace(/\./g, "_")}.wav`,
+        });
+      }).catch((err) => {
+        if (!cancelGeneration) {
+          cancelGeneration = true;
+          showError(err.message || "Failed to generate audio");
+        }
       });
 
+      // Step 3: Wait only for chunk 0, then start playback immediately
+      await waitForChunk(results, 0);
       if (cancelGeneration) return;
 
-      // Step 3: Stitch audio blobs and build chunk map
-      showProgress(total, total, "Stitching audio...");
-
-      const SILENCE_DURATION = 0.2;
-      const SAMPLE_RATE = 24000;
-      const silenceBlob = createSilenceWAV(SILENCE_DURATION, SAMPLE_RATE);
-
-      const pcmParts = [];
-      const chunkMap = [];
-      let currentTime = 0;
-      const silencePCM = await extractPCM(silenceBlob);
-
-      for (const r of results) {
-        if (!r) continue;
-        const pcm = await extractPCM(r.blob);
-        pcmParts.push(pcm);
-        chunkMap.push({ start: currentTime, end: currentTime + r.duration, text: r.text });
-        currentTime += r.duration;
-        // Add silence between chunks
-        pcmParts.push(silencePCM);
-        currentTime += SILENCE_DURATION;
-      }
-
-      const fullBlob = buildWAV(pcmParts, SAMPLE_RATE);
-      audioBlobUrl = URL.createObjectURL(fullBlob);
-
-      // Store blob for on-demand download (no auto-download)
-      const timestamp = Date.now();
-      const domain = location.hostname.replace(/\./g, "_");
-      currentFilename = `Autlaut_${timestamp}_${domain}.wav`;
-      currentBlob = fullBlob;
-
-      // Save history (lightweight)
-      chrome.runtime.sendMessage({
-        action: "save-history",
-        chunkMap, text: selectedText,
-        voice: settings.voice, speed: settings.speed, filename: currentFilename,
-      });
-
+      const partialChunkMap = buildChunkMap(results, total, chunks);
       hideProgress();
       hideFAB();
-      setupHighlighting(chunkMap);
-      playAudio(audioBlobUrl, chunkMap);
+      setupHighlighting(partialChunkMap);
+      startStreamingPlayback(results, total, chunks, settings);
 
     } catch (err) {
       hideProgress();
-      // Clean up any blob URL created before the error
-      if (audioBlobUrl) URL.revokeObjectURL(audioBlobUrl);
       if (!cancelGeneration) showError(err.message || "Failed to connect to TTS server");
     } finally {
       setFABLoading(false);
@@ -342,6 +340,238 @@
     document.body.appendChild(a);
     a.click();
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 100);
+  }
+
+  // ── Streaming Playback Helpers ──
+
+  const SILENCE_DURATION = 0.2;
+
+  function waitForChunk(results, idx) {
+    return new Promise((resolve) => {
+      const check = () => {
+        if (cancelGeneration || results[idx]) { resolve(); return; }
+        setTimeout(check, 50);
+      };
+      check();
+    });
+  }
+
+  function buildChunkMap(results, total, chunkTexts) {
+    const ESTIMATED_CHARS_PER_SECOND = 65;
+    const chunkMap = [];
+    let currentTime = 0;
+    for (let i = 0; i < total; i++) {
+      const duration = results[i] ? results[i].duration : chunkTexts[i].length / ESTIMATED_CHARS_PER_SECOND;
+      chunkMap.push({ start: currentTime, end: currentTime + duration, text: chunkTexts[i] });
+      currentTime += duration + SILENCE_DURATION;
+    }
+    totalEstimatedDuration = currentTime;
+    return chunkMap;
+  }
+
+  function startStreamingPlayback(results, total, chunkTexts, settings) {
+    currentChunkIndex = 0;
+    playbackTimeOffset = 0;
+    isPaused = false;
+    allChunksComplete = false;
+    chunkBlobUrls = new Array(total).fill(null);
+    streamingResults = results;
+    streamingChunks = chunkTexts;
+    streamingTotal = total;
+
+    createPlayer();
+    player.querySelector("#kokoro-title").textContent =
+      selectedText.slice(0, 60) + (selectedText.length > 60 ? "..." : "");
+    requestAnimationFrame(() => player.classList.add("visible"));
+    playChunk(0);
+  }
+
+  function playChunk(idx) {
+    if (cancelGeneration || idx >= streamingTotal) {
+      onPlaybackComplete();
+      return;
+    }
+
+    const result = streamingResults[idx];
+    if (!result) {
+      isWaitingForChunk = true;
+      showChunkLoading();
+      waitForChunk(streamingResults, idx).then(() => {
+        isWaitingForChunk = false;
+        hideChunkLoading();
+        if (!cancelGeneration && !isPaused) playChunk(idx);
+      });
+      return;
+    }
+
+    currentChunkIndex = idx;
+
+    if (audio) {
+      audio.pause();
+      audio.removeAttribute("src");
+    }
+
+    if (!chunkBlobUrls[idx]) {
+      chunkBlobUrls[idx] = URL.createObjectURL(result.blob);
+    }
+
+    audio = new Audio(chunkBlobUrls[idx]);
+    audio.playbackRate = SPEEDS[speedIndex];
+    audio.volume = volumeLevel;
+    audio.addEventListener("timeupdate", onStreamingTimeUpdate);
+    audio.addEventListener("ended", onChunkEnded);
+
+    if (!isPaused) {
+      audio.play().catch(() => {});
+    }
+
+    // Update chunkMap with actual durations as they become known
+    currentChunkMap = buildChunkMap(streamingResults, streamingTotal, streamingChunks);
+    updateStreamingProgressBar();
+  }
+
+  function onStreamingTimeUpdate() {
+    const effectiveTime = playbackTimeOffset + (audio ? audio.currentTime : 0);
+    updateHighlight(effectiveTime);
+    updateStreamingProgressBar();
+  }
+
+  function onChunkEnded() {
+    const completedChunk = streamingResults[currentChunkIndex];
+    if (completedChunk) {
+      playbackTimeOffset += completedChunk.duration + SILENCE_DURATION;
+    }
+
+    const nextIdx = currentChunkIndex + 1;
+    if (nextIdx >= streamingTotal) {
+      onPlaybackComplete();
+      return;
+    }
+
+    // Silence gap scaled by playback speed
+    const silenceMs = (SILENCE_DURATION * 1000) / SPEEDS[speedIndex];
+    setTimeout(() => {
+      if (!cancelGeneration && !isPaused) {
+        playChunk(nextIdx);
+      }
+    }, silenceMs);
+  }
+
+  function onPlaybackComplete() {
+    if (player) {
+      player.querySelector("#kokoro-play-pause").innerHTML = ICONS.play;
+    }
+    highlightSpans.forEach((s) => {
+      s.classList.remove("kokoro-active");
+      s.classList.add("kokoro-played");
+    });
+  }
+
+  function updateStreamingProgressBar() {
+    if (!audio || !player) return;
+    const effectiveTime = playbackTimeOffset + audio.currentTime;
+    const totalDuration = totalEstimatedDuration || 1;
+    const pct = Math.min(100, (effectiveTime / totalDuration) * 100);
+    player.querySelector("#kokoro-progress-bar").style.width = `${pct}%`;
+    const thumb = player.querySelector("#kokoro-progress-thumb");
+    if (thumb) thumb.style.left = `${pct}%`;
+    player.querySelector("#kokoro-time").textContent =
+      `${fmtTime(effectiveTime)} / ${fmtTime(totalDuration)}`;
+  }
+
+  function seekToAbsoluteTime(targetTime) {
+    if (!streamingResults) return;
+
+    // Find target chunk
+    let targetChunkIdx = -1;
+    for (let i = 0; i < currentChunkMap.length; i++) {
+      if (targetTime >= currentChunkMap[i].start && targetTime < currentChunkMap[i].end) {
+        targetChunkIdx = i;
+        break;
+      }
+      // In silence gap — snap to start of next chunk
+      if (i < currentChunkMap.length - 1 &&
+          targetTime >= currentChunkMap[i].end && targetTime < currentChunkMap[i + 1].start) {
+        targetChunkIdx = i + 1;
+        targetTime = currentChunkMap[i + 1].start;
+        break;
+      }
+    }
+
+    if (targetChunkIdx === -1) {
+      if (currentChunkMap.length > 0 && targetTime >= currentChunkMap[currentChunkMap.length - 1].end) {
+        targetChunkIdx = currentChunkMap.length - 1;
+      } else {
+        targetChunkIdx = 0;
+        targetTime = 0;
+      }
+    }
+
+    // Can't seek to a chunk that hasn't loaded
+    if (!streamingResults[targetChunkIdx]) {
+      for (let i = targetChunkIdx - 1; i >= 0; i--) {
+        if (streamingResults[i]) { targetChunkIdx = i; break; }
+      }
+      targetTime = currentChunkMap[targetChunkIdx]?.start || 0;
+    }
+
+    const withinChunkTime = targetTime - currentChunkMap[targetChunkIdx].start;
+
+    // Recalculate playbackTimeOffset
+    let offset = 0;
+    for (let i = 0; i < targetChunkIdx; i++) {
+      const d = streamingResults[i] ? streamingResults[i].duration : (currentChunkMap[i].end - currentChunkMap[i].start);
+      offset += d + SILENCE_DURATION;
+    }
+    playbackTimeOffset = offset;
+
+    // Same chunk — just seek within
+    if (targetChunkIdx === currentChunkIndex && audio) {
+      audio.currentTime = Math.min(withinChunkTime, audio.duration || withinChunkTime);
+      return;
+    }
+
+    // Different chunk — switch
+    playChunk(targetChunkIdx);
+    if (audio && withinChunkTime > 0) {
+      const seekOnce = () => {
+        audio.currentTime = Math.min(withinChunkTime, audio.duration);
+      };
+      audio.addEventListener("loadedmetadata", seekOnce, { once: true });
+    }
+  }
+
+  function showChunkLoading() {
+    if (!player) return;
+    const timeEl = player.querySelector("#kokoro-time");
+    if (timeEl) timeEl.textContent = "Buffering...";
+    player.querySelector("#kokoro-progress-bar")?.classList.add("buffering");
+  }
+
+  function hideChunkLoading() {
+    if (!player) return;
+    player.querySelector("#kokoro-progress-bar")?.classList.remove("buffering");
+    updateStreamingProgressBar();
+  }
+
+  function stitchForDownload(results, settings) {
+    (async () => {
+      const SAMPLE_RATE = 24000;
+      const silenceBlob = createSilenceWAV(SILENCE_DURATION, SAMPLE_RATE);
+      const silencePCM = await extractPCM(silenceBlob);
+      const pcmParts = [];
+      for (const r of results) {
+        if (!r) continue;
+        const pcm = await extractPCM(r.blob);
+        pcmParts.push(pcm);
+        pcmParts.push(silencePCM);
+      }
+      const fullBlob = buildWAV(pcmParts, SAMPLE_RATE);
+      const timestamp = Date.now();
+      const domain = location.hostname.replace(/\./g, "_");
+      currentFilename = `Autlaut_${timestamp}_${domain}.wav`;
+      currentBlob = fullBlob;
+    })();
   }
 
   function showError(msg) {
@@ -539,7 +769,11 @@
     player.querySelector("#kokoro-close").addEventListener("click", closePlayer);
     player.querySelector("#kokoro-progress-wrap").addEventListener("mousedown", onSeekStart);
     player.querySelector("#kokoro-download").addEventListener("click", () => {
-      if (currentBlob) saveBlob(currentBlob, currentFilename);
+      if (currentBlob) {
+        saveBlob(currentBlob, currentFilename);
+      } else if (!allChunksComplete) {
+        showError("Download available after all chunks finish loading");
+      }
     });
     player.querySelector("#kokoro-volume-btn").addEventListener("click", () => {
       player.querySelector("#kokoro-volume-group").classList.toggle("expanded");
@@ -562,41 +796,35 @@
     return player;
   }
 
-  function playAudio(blobUrl, chunkMap) {
-    if (audio) {
-      const oldSrc = audio.src;
-      audio.pause();
-      audio.src = "";
-      if (oldSrc.startsWith("blob:")) URL.revokeObjectURL(oldSrc);
-    }
-    audio = new Audio(blobUrl);
-    currentChunkMap = chunkMap;
-    createPlayer();
-    player.querySelector("#kokoro-title").textContent =
-      selectedText.slice(0, 60) + (selectedText.length > 60 ? "..." : "");
-    audio.addEventListener("timeupdate", () => { updateProgressBar(); updateHighlight(audio.currentTime); });
-    audio.addEventListener("ended", () => {
-      player.querySelector("#kokoro-play-pause").innerHTML = ICONS.play;
-      highlightSpans.forEach((s) => { s.classList.remove("kokoro-active"); s.classList.add("kokoro-played"); });
-    });
-    audio.addEventListener("loadedmetadata", () => updateProgressBar());
-    audio.playbackRate = SPEEDS[speedIndex];
-    audio.volume = volumeLevel;
-    audio.play();
-    requestAnimationFrame(() => player.classList.add("visible"));
-  }
+  // playAudio is no longer used — replaced by startStreamingPlayback + playChunk
 
   function togglePlayPause() {
     if (!audio) return;
     const btn = player.querySelector("#kokoro-play-pause");
-    if (audio.paused) { audio.play(); btn.innerHTML = ICONS.pause; }
-    else { audio.pause(); btn.innerHTML = ICONS.play; }
+    if (audio.paused) {
+      isPaused = false;
+      audio.play();
+      btn.innerHTML = ICONS.pause;
+    } else {
+      isPaused = true;
+      audio.pause();
+      btn.innerHTML = ICONS.play;
+    }
   }
 
-  function seekRelative(s) { if (audio) audio.currentTime = Math.max(0, Math.min(audio.duration, audio.currentTime + s)); }
+  function seekRelative(s) {
+    if (!audio) return;
+    if (streamingResults) {
+      const effectiveTime = playbackTimeOffset + audio.currentTime;
+      const targetTime = Math.max(0, Math.min(totalEstimatedDuration, effectiveTime + s));
+      seekToAbsoluteTime(targetTime);
+    } else {
+      audio.currentTime = Math.max(0, Math.min(audio.duration, audio.currentTime + s));
+    }
+  }
 
   function onSeekStart(e) {
-    if (!audio || !audio.duration) return;
+    if (!audio || (!audio.duration && !streamingResults)) return;
     e.preventDefault();
     isSeeking = true;
     player.querySelector("#kokoro-progress-wrap").classList.add("seeking");
@@ -619,11 +847,15 @@
   }
 
   function seekToPosition(e) {
-    if (!audio || !audio.duration) return;
+    if (!player) return;
     const wrap = player.querySelector("#kokoro-progress-wrap");
     const rect = wrap.getBoundingClientRect();
     const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    audio.currentTime = ratio * audio.duration;
+    if (streamingResults) {
+      seekToAbsoluteTime(ratio * totalEstimatedDuration);
+    } else if (audio && audio.duration) {
+      audio.currentTime = ratio * audio.duration;
+    }
   }
 
   function cycleSpeed() {
@@ -656,13 +888,31 @@
   }
 
   function closePlayer() {
+    cancelGeneration = true;
+
     if (audio) {
-      const src = audio.src;
       audio.pause();
-      audio.src = "";
+      audio.removeAttribute("src");
       audio = null;
-      if (src.startsWith("blob:")) URL.revokeObjectURL(src);
     }
+
+    // Revoke all chunk blob URLs
+    if (chunkBlobUrls) {
+      chunkBlobUrls.forEach((url) => { if (url) URL.revokeObjectURL(url); });
+      chunkBlobUrls = [];
+    }
+
+    // Reset streaming state
+    streamingResults = null;
+    streamingChunks = null;
+    streamingTotal = 0;
+    currentChunkIndex = 0;
+    playbackTimeOffset = 0;
+    totalEstimatedDuration = 0;
+    allChunksComplete = false;
+    isPaused = false;
+    isWaitingForChunk = false;
+
     if (player) {
       const closingPlayer = player;
       player = null;

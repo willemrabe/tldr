@@ -473,6 +473,16 @@
   outline-offset: 2px;
 }
 
+/* Buffering indicator */
+#kokoro-progress-bar.buffering {
+  animation: kokoro-buffering-pulse 0.8s ease-in-out infinite;
+}
+
+@keyframes kokoro-buffering-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   #kokoro-fab,
@@ -482,7 +492,8 @@
   .kokoro-prog-orb,
   .kokoro-prog-viz-bar,
   .kokoro-prog-bar-fill,
-  .kokoro-chunk {
+  .kokoro-chunk,
+  #kokoro-progress-bar.buffering {
     animation: none !important;
     transition-duration: 0.01s !important;
   }
