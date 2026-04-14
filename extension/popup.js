@@ -1,6 +1,18 @@
 /* Autlaut — Popup Script */
 let previewAudio = null;
 
+// Per-engine sensible defaults so a fresh engine pick doesn't land on a
+// voice the other engine doesn't know about.
+const ENGINE_DEFAULT_VOICE = {
+  kokoro: "bm_lewis",
+  piper: "de_DE-thorsten-medium",
+};
+
+const ENGINE_HINTS = {
+  kokoro: "Kokoro — 82M-parameter English/multilingual model. No German voice yet.",
+  piper: "Piper — VITS. German (Thorsten et al.) + 40+ languages. Each voice downloads its own model on first use.",
+};
+
 document.addEventListener("DOMContentLoaded", async () => {
   // Tab switching
   document.querySelectorAll("nav .tab").forEach((btn) => {
@@ -27,16 +39,71 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.action === "model-progress" && msg.progress) {
     const btn = document.getElementById("model-toggle");
     const label = btn.querySelector(".server-label");
-    if (msg.progress.status === "progress" && msg.progress.total) {
-      const pct = Math.round((msg.progress.loaded / msg.progress.total) * 100);
-      label.textContent = `${pct}%`;
-    } else if (msg.progress.status === "done") {
+    const p = msg.progress;
+    // Kokoro: { status: "progress" | "done", loaded, total }
+    // Piper:  { url, loaded, total }  (no status field)
+    if (p.status === "done") {
       label.textContent = "Loading...";
+    } else if (p.total && p.loaded != null) {
+      const pct = Math.round((p.loaded / p.total) * 100);
+      label.textContent = `${pct}%`;
     }
   }
 });
 
 // --- Settings ---
+
+// Populate the voice <select> for the given engine. When switching engines,
+// piper needs a concrete voice ID to load because each voice is its own ONNX
+// model. For kokoro we can ask without a voice hint.
+async function populateVoices(engine, preferredVoice) {
+  const select = document.getElementById("voice-select");
+  const previousValue = select.value;
+  select.innerHTML = '<option value="">Loading voices...</option>';
+  select.disabled = true;
+
+  const voiceData = await sendMessage({
+    action: "get-voices",
+    engine,
+  });
+
+  select.innerHTML = "";
+  select.disabled = false;
+
+  const voices = Array.isArray(voiceData.voices) ? voiceData.voices : [];
+  if (voices.length === 0) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "(no voices available)";
+    select.appendChild(opt);
+    return "";
+  }
+
+  voices.forEach((v) => {
+    // engine.getVoices() now returns { id, label, language } objects.
+    // Fall back to bare strings for defensiveness.
+    const id = typeof v === "string" ? v : v.id;
+    const label = typeof v === "string" ? v : v.label || v.id;
+    const opt = document.createElement("option");
+    opt.value = id;
+    opt.textContent = label;
+    select.appendChild(opt);
+  });
+
+  // Pick the best value to leave selected: the caller's preferred voice →
+  // the previously selected voice (if still valid) → engine default → first.
+  const ids = voices.map((v) => (typeof v === "string" ? v : v.id));
+  const choice = [preferredVoice, previousValue, ENGINE_DEFAULT_VOICE[engine]]
+    .filter(Boolean)
+    .find((id) => ids.includes(id)) || ids[0];
+  select.value = choice;
+  return choice;
+}
+
+function setEngineHint(engine) {
+  const el = document.getElementById("engine-hint");
+  if (el) el.textContent = ENGINE_HINTS[engine] || "";
+}
 
 async function loadSettings() {
   const settings = await sendMessage({ action: "get-settings" });
@@ -44,19 +111,23 @@ async function loadSettings() {
   document.getElementById("speed-value").textContent = `${settings.speed}x`;
   document.getElementById("workers-select").value = String(settings.workers || 2);
 
-  // Load voices
-  const voiceData = await sendMessage({ action: "get-voices" });
-  const select = document.getElementById("voice-select");
-  if (voiceData.voices && voiceData.voices.length > 0) {
-    select.innerHTML = "";
-    voiceData.voices.forEach((v) => {
-      const opt = document.createElement("option");
-      opt.value = v;
-      opt.textContent = v;
-      if (v === settings.voice) opt.selected = true;
-      select.appendChild(opt);
-    });
-  }
+  const engineSelect = document.getElementById("engine-select");
+  const currentEngine = settings.engine || "kokoro";
+  engineSelect.value = currentEngine;
+  setEngineHint(currentEngine);
+
+  // Load voices for the currently selected engine.
+  await populateVoices(currentEngine, settings.voice);
+
+  // Engine switch: repopulate voices. This may trigger a piper model download
+  // on first use — offscreen surfaces progress through the same model-progress
+  // relay Kokoro already uses.
+  engineSelect.addEventListener("change", async () => {
+    const nextEngine = engineSelect.value;
+    setEngineHint(nextEngine);
+    const preferred = ENGINE_DEFAULT_VOICE[nextEngine];
+    await populateVoices(nextEngine, preferred);
+  });
 
   // Speed slider live update
   document.getElementById("speed-range").addEventListener("input", (e) => {
@@ -79,6 +150,7 @@ async function loadSettings() {
       }
       const workers = parseInt(document.getElementById("workers-select").value, 10);
       const newSettings = {
+        engine: engineSelect.value,
         voice: document.getElementById("voice-select").value,
         speed,
         workers,
@@ -99,6 +171,7 @@ async function loadSettings() {
 async function previewVoice() {
   const btn = document.getElementById("preview-voice-btn");
   const statusEl = document.getElementById("preview-status");
+  const engine = document.getElementById("engine-select").value;
   const voice = document.getElementById("voice-select").value;
   const speed = parseFloat(document.getElementById("speed-range").value);
 
@@ -117,6 +190,7 @@ async function previewVoice() {
   try {
     const result = await sendMessage({
       action: "tts-preview",
+      engine,
       voice,
       speed,
     });
@@ -187,19 +261,9 @@ document.getElementById("model-toggle").addEventListener("click", async () => {
     if (result && result.ok) {
       await checkModel();
       // Reload voices now that model is ready
-      const voiceData = await sendMessage({ action: "get-voices" });
       const settings = await sendMessage({ action: "get-settings" });
-      const select = document.getElementById("voice-select");
-      if (voiceData.voices && voiceData.voices.length > 0) {
-        select.innerHTML = "";
-        voiceData.voices.forEach((v) => {
-          const opt = document.createElement("option");
-          opt.value = v;
-          opt.textContent = v;
-          if (v === settings.voice) opt.selected = true;
-          select.appendChild(opt);
-        });
-      }
+      const engine = document.getElementById("engine-select").value || settings.engine || "kokoro";
+      await populateVoices(engine, settings.voice);
     } else {
       label.textContent = "Error";
       btn.className = "server-toggle offline";

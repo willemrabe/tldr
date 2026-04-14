@@ -37,6 +37,14 @@
         <fieldset>
           <legend class="sr-only">TTS Settings</legend>
           <div class="setting-group">
+            <label for="engine-select">Engine</label>
+            <select id="engine-select">
+              <option value="kokoro">Kokoro (English, multilingual)</option>
+              <option value="piper">Piper (German, 40+ languages)</option>
+            </select>
+            <p class="engine-hint" id="engine-hint">Kokoro — 82M-parameter English model.</p>
+          </div>
+          <div class="setting-group">
             <label for="voice-select">Voice</label>
             <div class="voice-row">
               <select id="voice-select">

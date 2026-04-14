@@ -1,83 +1,86 @@
-/* Autlaut — TTS Web Worker (runs kokoro-js model instance) */
-import { KokoroTTS, env } from "kokoro-js";
+/* Autlaut — TTS Web Worker (runs a pluggable engine: kokoro or piper) */
+import { kokoroEngine } from "./engines/kokoro.js";
+import { piperEngine } from "./engines/piper.js";
 
-const MODEL_ID = "onnx-community/Kokoro-82M-v1.0-ONNX";
-const SAMPLE_RATE = 24000;
+const ENGINES = {
+  [kokoroEngine.id]: kokoroEngine,
+  [piperEngine.id]: piperEngine,
+};
 
-let tts = null;
-let loading = false;
+let currentEngine = null;
+let currentEngineId = null;
 
-function toBase64DataUrl(wavBuffer) {
-  const bytes = new Uint8Array(wavBuffer);
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
+function emitProgress(progress) {
+  self.postMessage({ type: "progress", progress });
+}
+
+async function initEngine({ engine, voice, wasmPaths }) {
+  const engineId = engine || kokoroEngine.id;
+  const impl = ENGINES[engineId];
+  if (!impl) throw new Error(`Unknown engine: ${engineId}`);
+
+  // Engine switch — tear down the old one first
+  if (currentEngine && currentEngineId !== engineId) {
+    try { currentEngine.dispose(); } catch {}
+    currentEngine = null;
+    currentEngineId = null;
   }
-  return "data:audio/wav;base64," + btoa(binary);
+
+  await impl.load({ wasmPaths, voice, onProgress: emitProgress });
+  currentEngine = impl;
+  currentEngineId = engineId;
 }
 
 self.onmessage = async (e) => {
   const msg = e.data;
-
   try {
-    if (msg.action === "init") {
-      // Configure WASM paths (passed from offscreen document)
-      env.wasmPaths = msg.wasmPaths;
-
-      if (tts) {
-        self.postMessage({ id: msg.id, result: { ok: true } });
-        return;
-      }
-      if (loading) {
-        while (loading) await new Promise((r) => setTimeout(r, 200));
-        self.postMessage({ id: msg.id, result: { ok: true } });
-        return;
-      }
-
-      loading = true;
-      try {
-        tts = await KokoroTTS.from_pretrained(MODEL_ID, {
-          dtype: "q8",
-          device: "wasm",
-          progress_callback: (progress) => {
-            self.postMessage({ type: "progress", progress });
-          },
+    switch (msg.action) {
+      case "init": {
+        await initEngine({
+          engine: msg.engine,
+          voice: msg.voice,
+          wasmPaths: msg.wasmPaths,
         });
-        self.postMessage({ id: msg.id, result: { ok: true } });
-      } finally {
-        loading = false;
+        self.postMessage({ id: msg.id, result: { ok: true, engine: currentEngineId } });
+        return;
       }
-      return;
-    }
 
-    if (msg.action === "generate") {
-      if (!tts) throw new Error("Model not loaded");
-      const audio = await tts.generate(msg.text, {
-        voice: msg.voice || "bm_daniel",
-        speed: msg.speed || 1.0,
-      });
-      const duration = audio.audio.length / SAMPLE_RATE;
-      self.postMessage({
-        id: msg.id,
-        result: {
-          dataUrl: toBase64DataUrl(audio.toWav()),
-          duration,
-          index: msg.index,
-        },
-      });
-      return;
-    }
+      case "voices": {
+        if (!currentEngine) throw new Error("Engine not loaded");
+        self.postMessage({
+          id: msg.id,
+          result: { engine: currentEngineId, voices: currentEngine.getVoices() },
+        });
+        return;
+      }
 
-    if (msg.action === "voices") {
-      if (!tts) throw new Error("Model not loaded");
-      self.postMessage({
-        id: msg.id,
-        result: { voices: Object.keys(tts.voices) },
-      });
-      return;
-    }
+      case "generate": {
+        if (!currentEngine) throw new Error("Engine not loaded");
 
-    self.postMessage({ id: msg.id, error: `Unknown action: ${msg.action}` });
+        // Each engine.generate(args, ctx) — ctx carries wasmPaths so piper
+        // can lazy-load a model on first use without the dispatcher having
+        // to do a separate init hop.
+        const { dataUrl, duration } = await currentEngine.generate(
+          {
+            text: msg.text,
+            voice: msg.voice,
+            speed: msg.speed || 1.0,
+          },
+          {
+            wasmPaths: msg.wasmPaths,
+            onProgress: emitProgress,
+          }
+        );
+        self.postMessage({
+          id: msg.id,
+          result: { dataUrl, duration, index: msg.index },
+        });
+        return;
+      }
+
+      default:
+        self.postMessage({ id: msg.id, error: `Unknown action: ${msg.action}` });
+    }
   } catch (err) {
     self.postMessage({ id: msg.id, error: err.message || String(err) });
   }

@@ -8,6 +8,8 @@
     "watch": "node build.js --watch"
   },
   "dependencies": {
+    "@diffusionstudio/piper-wasm": "^1.0.0",
+    "@mintplex-labs/piper-tts-web": "^1.0.4",
     "kokoro-js": "^1.0.0"
   },
   "devDependencies": {

@@ -2,17 +2,24 @@
 
 const DEFAULT_WORKERS = 2;
 const MAX_WORKERS = 4;
-const SAMPLE_RATE = 24000;
 const FIRST_CHUNK_MAX = 150;
 const REST_CHUNK_MAX = 300;
+const DEFAULT_ENGINE = "kokoro";
 
+// ONNX Runtime WASM (shared by kokoro and piper) lives under lib/.
+// Piper's emscripten phonemizer WASM + espeak-ng data file also live there.
+// We pass a single base URL to the worker; each engine adapter knows how
+// to turn it into the shape its underlying library expects.
 const wasmPaths = chrome.runtime.getURL("lib/");
 
 // --- Worker pool ---
 
 let workers = [];
 let workerReady = [];
+let workerEngine = []; // engine id each worker is currently initialized for
+let workerVoice = [];  // piper: voice id currently loaded (kokoro: unused)
 let targetWorkerCount = DEFAULT_WORKERS;
+let currentEngineId = DEFAULT_ENGINE;
 let msgId = 0;
 const pending = new Map(); // id → { resolve, reject }
 
@@ -49,6 +56,8 @@ function ensurePoolSize(count) {
   while (workers.length < count) {
     workers.push(spawnWorker(workers.length));
     workerReady.push(false);
+    workerEngine.push(null);
+    workerVoice.push(null);
   }
 }
 
@@ -60,15 +69,42 @@ function sendToWorker(workerIdx, msg) {
   });
 }
 
-async function ensureWorkersReady(count) {
+async function ensureWorkersReady({ engine, voice, count } = {}) {
+  const targetEngine = engine || currentEngineId || DEFAULT_ENGINE;
+  const targetVoice = voice || null;
   ensurePoolSize(count || targetWorkerCount);
+
+  // If engine changed globally, mark current workers as needing reinit.
+  if (targetEngine !== currentEngineId) {
+    for (let i = 0; i < workers.length; i++) {
+      if (workerEngine[i] && workerEngine[i] !== targetEngine) {
+        workerReady[i] = false;
+      }
+    }
+    currentEngineId = targetEngine;
+  }
 
   const initPromises = [];
   for (let i = 0; i < targetWorkerCount; i++) {
-    if (!workerReady[i]) {
+    const engineMismatch = workerEngine[i] !== targetEngine;
+    // Piper needs per-voice loading. Kokoro shares one model across voices,
+    // so we don't care about voice here.
+    const voiceMismatch =
+      targetEngine === "piper" &&
+      targetVoice &&
+      workerVoice[i] !== targetVoice;
+
+    if (!workerReady[i] || engineMismatch || voiceMismatch) {
       initPromises.push(
-        sendToWorker(i, { action: "init", wasmPaths }).then(() => {
+        sendToWorker(i, {
+          action: "init",
+          engine: targetEngine,
+          voice: targetVoice,
+          wasmPaths,
+        }).then(() => {
           workerReady[i] = true;
+          workerEngine[i] = targetEngine;
+          workerVoice[i] = targetEngine === "piper" ? targetVoice : null;
         })
       );
     }
@@ -190,6 +226,26 @@ function splitLongSentence(sentence, maxChars) {
   return chunks;
 }
 
+// Pick a preview sentence that actually exercises the target language.
+// We key off the engine first, then the voice prefix for multilingual engines.
+function previewTextFor(engine, voice) {
+  const EN_PREVIEW = "The quick brown fox jumps over the lazy dog. How vexingly quick daft zebras jump!";
+  const DE_PREVIEW = "Der schnelle braune Fuchs springt über den faulen Hund. Zwölf laxe Typen qualmen gerade.";
+  const FR_PREVIEW = "Portez ce vieux whisky au juge blond qui fume sur son île intérieure.";
+  const ES_PREVIEW = "El veloz zorro marrón salta sobre el perro perezoso. ¡Qué bien suena el español!";
+  const IT_PREVIEW = "Ma la volpe, col suo balzo, ha raggiunto il quieto Fido.";
+
+  if (engine === "piper" && typeof voice === "string") {
+    if (voice.startsWith("de_DE")) return DE_PREVIEW;
+    if (voice.startsWith("fr_FR")) return FR_PREVIEW;
+    if (voice.startsWith("es_")) return ES_PREVIEW;
+    if (voice.startsWith("it_IT")) return IT_PREVIEW;
+    // fall through to English for en_US / en_GB and any other language
+    return EN_PREVIEW;
+  }
+  return EN_PREVIEW;
+}
+
 function chunkText(text) {
   const sentences = splitSentences(text);
   if (sentences.length === 0) return [text.trim()];
@@ -237,19 +293,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const handle = async () => {
     switch (msg.action) {
       case "tts-init": {
-        await ensureWorkersReady(msg.workers || DEFAULT_WORKERS);
-        return { ok: true };
+        await ensureWorkersReady({
+          engine: msg.engine,
+          voice: msg.voice,
+          count: msg.workers || DEFAULT_WORKERS,
+        });
+        return { ok: true, engine: currentEngineId };
       }
 
       case "model-status": {
         return {
           ready: workerReady.some(Boolean),
           loading: workers.length > 0 && !workerReady.some(Boolean),
+          engine: currentEngineId,
         };
       }
 
       case "get-voices": {
-        await ensureWorkersReady();
+        // Intentionally no voice — piper lists voices statically, so the
+        // engine just needs to be "activated" (no model download).
+        await ensureWorkersReady({ engine: msg.engine });
         return await sendToWorker(0, { action: "voices" });
       }
 
@@ -259,26 +322,32 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
 
       case "tts-chunk": {
-        await ensureWorkersReady(msg.workers || targetWorkerCount);
+        await ensureWorkersReady({
+          engine: msg.engine,
+          voice: msg.voice,
+          count: msg.workers || targetWorkerCount,
+        });
         const workerIdx = pickWorker();
         return await sendToWorker(workerIdx, {
           action: "generate",
           text: msg.text,
-          voice: msg.voice || "bm_daniel",
+          voice: msg.voice,
           speed: msg.speed || 1.0,
           index: msg.index,
+          wasmPaths,
         });
       }
 
       case "tts-preview": {
-        const previewText = "The quick brown fox jumps over the lazy dog. How vexingly quick daft zebras jump!";
-        await ensureWorkersReady();
+        const previewText = previewTextFor(msg.engine, msg.voice);
+        await ensureWorkersReady({ engine: msg.engine, voice: msg.voice });
         const result = await sendToWorker(0, {
           action: "generate",
           text: previewText,
-          voice: msg.voice || "bm_daniel",
+          voice: msg.voice,
           speed: msg.speed || 1.0,
           index: 0,
+          wasmPaths,
         });
         return { dataUrl: result.dataUrl };
       }

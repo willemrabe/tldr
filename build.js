@@ -53,6 +53,19 @@ function copyStatic() {
       copyFile(path.join(ortDist, f), path.join(wasmDir, f));
     }
   }
+
+  // Piper phonemizer WASM + espeak-ng data (bundled locally — Chrome MV3
+  // blocks remote script/WASM loading, so we can't let piper-tts-web fetch
+  // these from the CDN at runtime).
+  const piperWasmDir = path.join(__dirname, "node_modules", "@diffusionstudio", "piper-wasm", "build");
+  for (const f of ["piper_phonemize.wasm", "piper_phonemize.data"]) {
+    const src = path.join(piperWasmDir, f);
+    if (fs.existsSync(src)) {
+      copyFile(src, path.join(wasmDir, f));
+    } else {
+      console.warn(`[build] Missing piper asset: ${src}`);
+    }
+  }
 }
 
 async function build() {
@@ -71,6 +84,21 @@ async function build() {
     define: { "process.env.NODE_ENV": '"production"' },
   };
 
+  // Stub Node built-ins that are dead-code-reachable from piper-tts-web's
+  // emscripten glue (it guards them with `typeof process !== 'undefined'`
+  // at runtime, but esbuild still walks the require() calls statically).
+  const stubNodeBuiltinsPlugin = {
+    name: "stub-node-builtins",
+    setup(build) {
+      const empty = { contents: "module.exports = {};", loader: "js" };
+      build.onResolve({ filter: /^(fs|path|url|crypto|worker_threads)$/ }, (args) => ({
+        path: args.path,
+        namespace: "stub-node",
+      }));
+      build.onLoad({ filter: /.*/, namespace: "stub-node" }, () => empty);
+    },
+  };
+
   // Bundle offscreen.js (dispatcher — lightweight, no kokoro-js)
   const offscreenCtx = await esbuild.context({
     entryPoints: [path.join(EXT, "offscreen.js")],
@@ -78,10 +106,11 @@ async function build() {
     ...sharedBundleOpts,
   });
 
-  // Bundle tts-worker.js (heavy — contains kokoro-js + ONNX Runtime)
+  // Bundle tts-worker.js (heavy — contains kokoro-js, piper-tts-web, ONNX Runtime)
   const workerCtx = await esbuild.context({
     entryPoints: [path.join(EXT, "tts-worker.js")],
     outfile: path.join(DIST, "tts-worker.js"),
+    plugins: [stubNodeBuiltinsPlugin],
     ...sharedBundleOpts,
   });
 

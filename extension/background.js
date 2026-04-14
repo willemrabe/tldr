@@ -135,9 +135,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === "get-voices") {
-    sendToOffscreen({ action: "get-voices" })
-      .then(sendResponse)
-      .catch(() => sendResponse({ voices: [] }));
+    (async () => {
+      const settings = await KokoroStorage.getSettings();
+      const engine = msg.engine || settings.engine || "kokoro";
+      // Intentionally NOT passing a voice — piper's getVoices() is static
+      // (whole PATH_MAP), so listing voices must not trigger the 60+MB
+      // per-voice ONNX download. The model only loads on preview / first TTS.
+      return sendToOffscreen({ action: "get-voices", engine });
+    })().then(sendResponse).catch(() => sendResponse({ voices: [] }));
     return true;
   }
 
@@ -145,7 +150,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.action === "start-server" || msg.action === "tts-init") {
     KokoroStorage.getSettings().then((s) =>
-      sendToOffscreen({ action: "tts-init", workers: s.workers || 2 })
+      sendToOffscreen({
+        action: "tts-init",
+        engine: s.engine || "kokoro",
+        voice: s.voice,
+        workers: s.workers || 2,
+      })
     ).then(() => sendResponse({ ok: true, status: "ready" }))
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
@@ -171,6 +181,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const settings = await KokoroStorage.getSettings();
       return sendToOffscreen({
         action: "tts-chunk",
+        engine: settings.engine || "kokoro",
         text: msg.text,
         voice: settings.voice,
         speed: settings.speed,
@@ -184,11 +195,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === "tts-preview") {
-    sendToOffscreen({
-      action: "tts-preview",
-      voice: msg.voice,
-      speed: msg.speed,
-    }).then(sendResponse).catch((err) =>
+    (async () => {
+      const settings = await KokoroStorage.getSettings();
+      return sendToOffscreen({
+        action: "tts-preview",
+        engine: msg.engine || settings.engine || "kokoro",
+        voice: msg.voice,
+        speed: msg.speed,
+      });
+    })().then(sendResponse).catch((err) =>
       sendResponse({ error: err.message })
     );
     return true;

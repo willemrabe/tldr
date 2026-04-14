@@ -341,6 +341,13 @@ fieldset {
   margin-top: 4px;
 }
 
+.engine-hint {
+  font-size: 11px;
+  color: #888;
+  margin-top: 6px;
+  line-height: 1.4;
+}
+
 .primary-btn {
   width: 100%;
   padding: 10px;
