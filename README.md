@@ -12,6 +12,17 @@
 
 ## Changelog
 
+### v2.1.0 — Multi-engine TTS (Piper + German voices)
+
+- **Pluggable engine layer** — new adapter interface (`engines/kokoro.js`, `engines/piper.js`) so multiple TTS backends can run side-by-side.
+- **Piper TTS support** — adds [Piper VITS](https://github.com/rhasspy/piper) via `@mintplex-labs/piper-tts-web` with German voices (Thorsten, Kerstin, Karlsson, Eva, Ramona, Pavoque) and 40+ other languages.
+- **Lazy model loading** — Piper voice models (~60 MB each) only download on first use and cache in OPFS.
+- **Engine selector in popup** — new dropdown above the voice list; switching engines repopulates voices automatically.
+- **Language-aware preview** — preview sentence adapts to the selected voice language (DE, FR, ES, IT, EN).
+- **Default voice** changed to `bm_lewis`.
+- **Sentence splitting fix** — abbreviations and initials no longer cause incorrect sentence breaks.
+- **Auto-dismiss progress** — the progress panel now dismisses automatically after generation completes.
+
 ### v2.0.0 — Self-contained browser TTS
 
 - **Removed Python server entirely** — TTS now runs fully in-browser via kokoro-js and ONNX Runtime WebAssembly. No more `pip install`, no native messaging host, no localhost server.
@@ -79,7 +90,9 @@ Open the extension popup to change the voice, adjust speed, or view history.
 ```
 extension/
   offscreen.html / offscreen.js       — worker pool dispatcher
-  tts-worker.js                       — TTS engine (kokoro-js + ONNX Runtime WASM)
+  tts-worker.js                       — TTS worker (loads engine adapters)
+  engines/kokoro.js                   — Kokoro TTS adapter (kokoro-js + ONNX)
+  engines/piper.js                    — Piper TTS adapter (piper-tts-web + VITS)
   popup.html / popup.js / popup.css   — settings, history, model status
   content.js / content.css            — FAB, player, highlighting, progress overlay
   background.js                       — message router, offscreen lifecycle
@@ -97,8 +110,9 @@ Content Script  -->  Background (SW)  -->  Offscreen (dispatcher)  -->  Worker 1
 
 ## Tech Stack
 
-- [Kokoro](https://github.com/hexgrad/kokoro) 82M — lightweight, high-quality TTS model
+- [Kokoro](https://github.com/hexgrad/kokoro) 82M — lightweight, high-quality TTS model (English)
 - [kokoro-js](https://www.npmjs.com/package/kokoro-js) — JavaScript/ONNX port for in-browser inference
+- [Piper](https://github.com/rhasspy/piper) — fast VITS-based TTS with 40+ language voices (German, French, Spanish, etc.)
 - [ONNX Runtime Web](https://onnxruntime.ai/) — WebAssembly model execution
 - Chrome Extension Manifest V3 — offscreen documents, content scripts, service worker
 
