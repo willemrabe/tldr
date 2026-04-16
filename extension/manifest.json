@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Autlaut",
+  "name": "TLDR",
   "version": "2.0.0",
   "description": "Select text on any page and listen to it with Kokoro TTS. Runs entirely in-browser — no server needed.",
   "permissions": [

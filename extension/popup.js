@@ -1,4 +1,4 @@
-/* Autlaut — Popup Script */
+/* TLDR — Popup Script */
 let previewAudio = null;
 
 // Per-engine sensible defaults so a fresh engine pick doesn't land on a

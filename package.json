@@ -1,5 +1,5 @@
 {
-  "name": "autlaut",
+  "name": "tldr",
   "version": "1.0.0",
   "private": true,
   "description": "Browser extension for text-to-speech using Kokoro TTS",

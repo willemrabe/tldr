@@ -1,11 +1,11 @@
-/* Autlaut — Background Service Worker */
+/* TLDR — Background Service Worker */
 importScripts("lib/storage.js");
 
 // Context menu setup
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
     id: "kokoro-read",
-    title: "Read with Autlaut",
+    title: "Read with TLDR",
     contexts: ["selection"],
   });
 });

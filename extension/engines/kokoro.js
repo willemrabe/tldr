@@ -1,4 +1,4 @@
-/* Autlaut — Kokoro TTS engine adapter */
+/* TLDR — Kokoro TTS engine adapter */
 import { KokoroTTS, env } from "kokoro-js";
 
 const MODEL_ID = "onnx-community/Kokoro-82M-v1.0-ONNX";
