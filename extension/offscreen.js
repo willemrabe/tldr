@@ -1,4 +1,4 @@
-/* Autlaut — Offscreen TTS Engine (worker pool dispatcher) */
+/* TLDR — Offscreen TTS Engine (worker pool dispatcher) */
 
 const DEFAULT_WORKERS = 2;
 const MAX_WORKERS = 4;
@@ -43,7 +43,7 @@ function spawnWorker(index) {
     }
   };
   w.onerror = (err) => {
-    console.error(`[Autlaut] Worker ${index} error:`, err);
+    console.error(`[TLDR] Worker ${index} error:`, err);
   };
   return w;
 }

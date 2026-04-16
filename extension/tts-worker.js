@@ -1,4 +1,4 @@
-/* Autlaut — TTS Web Worker (runs a pluggable engine: kokoro or piper) */
+/* TLDR — TTS Web Worker (runs a pluggable engine: kokoro or piper) */
 import { kokoroEngine } from "./engines/kokoro.js";
 import { piperEngine } from "./engines/piper.js";
 

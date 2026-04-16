@@ -1,4 +1,4 @@
-# Autlaut
+# TLDR
 
 Browser extension for text-to-speech using Kokoro TTS.
 

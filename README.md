@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="extension/icons/icon128.png" width="80" alt="Autlaut" />
+  <img src="extension/icons/icon128.png" width="80" alt="TLDR" />
 </p>
 
-<h1 align="center">Autlaut</h1>
+<h1 align="center">TLDR</h1>
 
 <p align="center">
   A Chrome extension that reads any selected text aloud using natural-sounding voices — powered by <a href="https://github.com/hexgrad/kokoro">Kokoro TTS</a>, running entirely in-browser.
@@ -38,7 +38,7 @@
 
 ## Features
 
-- **Select & speak** — highlight text on any webpage and click the floating speaker button, or right-click and choose *Read with Autlaut*
+- **Select & speak** — highlight text on any webpage and click the floating speaker button, or right-click and choose *Read with TLDR*
 - **Self-contained** — TTS runs entirely in the browser via WebAssembly, no server or Python required
 - **Chunked generation** — text is split into natural sentences and processed with a live progress overlay
 - **Inline highlighting** — the currently spoken passage is highlighted and auto-scrolled in real time
@@ -70,7 +70,7 @@ On first use (or from the popup settings), the Kokoro TTS model (~88 MB, quantiz
 ## Usage
 
 1. Select text on any page
-2. Click the orange speaker button that appears — or right-click and choose **Read with Autlaut**
+2. Click the orange speaker button that appears — or right-click and choose **Read with TLDR**
 3. Watch the progress overlay while chunks are generated
 4. Listen, pause, seek, or download from the player bar
 

@@ -1,4 +1,4 @@
-/* Autlaut — Piper TTS engine adapter (VITS via @mintplex-labs/piper-tts-web) */
+/* TLDR — Piper TTS engine adapter (VITS via @mintplex-labs/piper-tts-web) */
 import { TtsSession, PATH_MAP } from "@mintplex-labs/piper-tts-web";
 
 const DEFAULT_VOICE = "de_DE-thorsten-medium";

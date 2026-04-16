@@ -1,4 +1,4 @@
-/* Autlaut — shared storage helpers */
+/* TLDR — shared storage helpers */
 const KokoroStorage = {
   async getHistory() {
     const data = await chrome.storage.local.get("history");

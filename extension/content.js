@@ -1,4 +1,4 @@
-/* Autlaut — Content Script */
+/* TLDR — Content Script */
 (() => {
   const ICONS = {
     speaker: `<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8.5v7a4.47 4.47 0 0 0 2.5-3.5zM14 3.23v2.06a7 7 0 0 1 0 13.42v2.06A9 9 0 0 0 14 3.23z"/></svg>`,
@@ -52,8 +52,8 @@
     fab = document.createElement("button");
     fab.id = "kokoro-fab";
     fab.innerHTML = ICONS.speaker;
-    fab.title = "Read with Autlaut";
-    fab.setAttribute("aria-label", "Read aloud with Autlaut");
+    fab.title = "Read with TLDR";
+    fab.setAttribute("aria-label", "Read aloud with TLDR");
     fab.addEventListener("click", onFABClick);
     document.body.appendChild(fab);
     return fab;
@@ -315,7 +315,7 @@
           action: "save-history",
           chunkMap: currentChunkMap, text: selectedText,
           voice: settings.voice, speed: settings.speed,
-          filename: `Autlaut_${Date.now()}_${location.hostname.replace(/\./g, "_")}.wav`,
+          filename: `TLDR_${Date.now()}_${location.hostname.replace(/\./g, "_")}.wav`,
         });
       }).catch((err) => {
         if (!cancelGeneration) {
@@ -636,16 +636,16 @@
       const fullBlob = buildWAV(pcmParts, SAMPLE_RATE);
       const timestamp = Date.now();
       const domain = location.hostname.replace(/\./g, "_");
-      currentFilename = `Autlaut_${timestamp}_${domain}.wav`;
+      currentFilename = `TLDR_${timestamp}_${domain}.wav`;
       currentBlob = fullBlob;
     })();
   }
 
   function showError(msg) {
     setFABLoading(false);
-    console.error("[Autlaut]", msg);
+    console.error("[TLDR]", msg);
     const toast = document.createElement("div");
-    toast.textContent = `Autlaut: ${msg}`;
+    toast.textContent = `TLDR: ${msg}`;
     Object.assign(toast.style, {
       position: "fixed", bottom: "80px", left: "50%", transform: "translateX(-50%)",
       background: "#d32f2f", color: "#fff", padding: "10px 20px", borderRadius: "8px",
